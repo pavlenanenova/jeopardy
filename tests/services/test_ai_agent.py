@@ -3,9 +3,9 @@ from unittest.mock import MagicMock, patch
 from app.services.ai_agent import attempt_answer, AGENT_NAMES, SKILL_PROMPTS
 
 
-@patch("app.services.ai_agent.model")
-def test_attempt_answer_returns_string(mock_model):
-    mock_model.generate_content.return_value = MagicMock(text="What is the Appian Way?")
+@patch("app.services.gemini_client.generate_content")
+def test_attempt_answer_returns_string(mock_generate):
+    mock_generate.return_value = MagicMock(text="What is the Appian Way?")
     answer = attempt_answer(
         question="Built in 312 B.C. to link Rome & the South of Italy",
         category="HISTORY",
@@ -31,21 +31,23 @@ def test_attempt_answer_retries_on_failure_then_succeeds(mock_base_model):
     assert "Appian Way" in answer
 
 
-@patch("app.services.ai_agent.model")
-def test_attempt_answer_passes_skill_prompt_to_model(mock_model):
-    mock_model.generate_content.return_value = MagicMock(text="What is Hydrogen?")
+@patch("app.services.ai_agent.generate_content")
+def test_attempt_answer_passes_skill_prompt_to_model(mock_generate):
+    mock_generate.return_value = MagicMock(text="What is Hydrogen?")
     attempt_answer(
         question="This element has the atomic number 1",
         category="SCIENCE",
         skill_level="expert",
     )
-    call_args = mock_model.generate_content.call_args[0][0]
+    # Mock was called with prompt as first arg and temperature as keyword arg
+    assert mock_generate.called
+    call_args = mock_generate.call_args[0][0]  # First positional arg is the prompt
     assert SKILL_PROMPTS["expert"] in call_args
 
 
-@patch("app.services.ai_agent.model")
-def test_attempt_answer_strips_whitespace(mock_model):
-    mock_model.generate_content.return_value = MagicMock(text="  What is Hydrogen?  \n")
+@patch("app.services.ai_agent.generate_content")
+def test_attempt_answer_strips_whitespace(mock_generate):
+    mock_generate.return_value = MagicMock(text="  What is Hydrogen?  \n")
     answer = attempt_answer(
         question="This element has the atomic number 1",
         category="SCIENCE",
