@@ -14,7 +14,7 @@ def get_random_question(round: str, value: str | None, db: Session) -> Question:
 
     Args:
         round: The Jeopardy round string e.g. 'Jeopardy!'.
-        value: Dollar value e.g. '00'. Pass None for Final Jeopardy! to match NULL rows.
+        value: Dollar value e.g. '400'. Pass None for Final Jeopardy! to match NULL rows.
         db: SQLAlchemy database session.
 
     Returns:

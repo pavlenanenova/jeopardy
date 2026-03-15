@@ -165,12 +165,19 @@ curl -X POST "http://localhost:8000/agent-play/" \
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `GEMINI_API_KEY` | Yes | — | Gemini API key for AI features |
+| `GEMINI_MODEL` | No | `gemini-2.5-flash-lite` | Gemini model to use for AI features |
+| `GEMINI_VERIFIER_TEMPERATURE` | No | `0.2` | Temperature for answer verification (low = deterministic) |
+| `GEMINI_BEGINNER_TEMPERATURE` | No | `1.0` | Temperature for Rookie-Bot (high = lots of mistakes) |
+| `GEMINI_INTERMEDIATE_TEMPERATURE` | No | `0.7` | Temperature for AI-Bot (moderate = occasional mistakes) |
+| `GEMINI_EXPERT_TEMPERATURE` | No | `0.3` | Temperature for Master-Bot (low = rarely wrong) |
+| `GEMINI_TOP_P` | No | `1` | Nucleus sampling parameter (limits token probability distribution) |
+| `GEMINI_TOP_K` | No | `1` | Top-K sampling (only consider top K most likely tokens) |
+| `GEMINI_MAX_TOKENS` | No | `1000` | Maximum tokens per response |
 | `POSTGRES_USER` | No | `jeopardy` | Database user |
 | `POSTGRES_PASSWORD` | No | `jeopardy` | Database password |
 | `POSTGRES_DB` | No | `jeopardy` | Database name |
 | `DATABASE_URL` | No | `postgresql://jeopardy:jeopardy@db:5432/jeopardy` | Full connection string |
 | `DATASET_URL` | No | (see `.env.example`) | URL to download the Jeopardy CSV |
-| `GEMINI_MODEL` | No | `gemini-2.5-flash-lite` | Gemini model to use for AI features |
 | `DB_POOL_SIZE` | No | `5` | Number of persistent database connections |
 | `DB_MAX_OVERFLOW` | No | `10` | Max extra connections above pool size |
 
@@ -181,6 +188,33 @@ curl -X POST "http://localhost:8000/agent-play/" \
 ## AI implementation note
 
 Answer verification and the AI agent are implemented using the **Gemini API** (gemini-2.5-flash-lite). Gemini was chosen over OpenAI because it has a free tier, making the project easy to run without upfront cost.
+
+### Generation config
+
+The Gemini model uses skill-level specific temperatures to create realistic AI agents:
+
+**Answer Verification (deterministic):**
+- **Temperature 0.2** — Low randomness ensures consistent correct/incorrect judgments
+
+**AI Agents (skill-based variability):**
+- **Rookie-Bot: Temperature 1.0** — Maximum variation, makes frequent mistakes
+- **AI-Bot: Temperature 0.7** — Moderate variation, occasionally wrong
+- **Master-Bot: Temperature 0.3** — Low variation, rarely makes mistakes
+
+**Sampling parameters:**
+- **Top P/K = 1** — Only the highest probability tokens are selected
+- **Max tokens = 1000** — Limits response length
+
+All values are customizable via environment variables (see [Environment variables](#environment-variables) above).
+
+### Retry strategy
+
+Both CSV download and Gemini API calls use exponential backoff with up to 3 retries:
+- First retry after 1 second
+- Second retry after 2 seconds  
+- Third retry after 4 seconds
+
+This handles transient API failures gracefully without manual intervention.
 
 Swapping to OpenAI requires only changing `app/services/ai_verifier.py` and `app/services/ai_agent.py` — the rest of the codebase is model-agnostic.
 

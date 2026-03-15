@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class QuestionResponse(BaseModel):
@@ -9,3 +9,11 @@ class QuestionResponse(BaseModel):
     question: str = Field(..., description="The clue text shown on the board")
 
     model_config = {"from_attributes": True}
+
+    @field_validator("value")
+    @classmethod
+    def value_required_unless_final_jeopardy(cls, v, info):
+        """Value is expected unless round is Final Jeopardy!"""
+        if info.data.get("round") != "Final Jeopardy!" and v is None:
+            raise ValueError("Value is required unless round is Final Jeopardy!")
+        return v

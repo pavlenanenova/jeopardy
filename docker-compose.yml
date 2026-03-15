@@ -14,6 +14,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
     deploy:
       resources:
         limits:
@@ -37,6 +38,7 @@ services:
     volumes:
       - csv_data:/app/data
       - .:/app
+    restart: unless-stopped
     command: >
       sh -c "alembic upgrade head && python scripts/ingest_data.py && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
     deploy:

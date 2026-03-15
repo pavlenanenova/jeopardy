@@ -1,57 +1,66 @@
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
+
+from app.services.ai_agent import attempt_answer, AGENT_NAMES, SKILL_PROMPTS
 
 
-@patch("app.api.routes.agent.verify_answer", return_value=(True, "Correct!"))
-@patch("app.api.routes.agent.attempt_answer", return_value="What is Copernicus?")
-def test_agent_play_returns_valid_response(mock_attempt, mock_verify, client):
-    response = client.post("/agent-play/", json={"round": "Jeopardy!", "value": "$200", "skill_level": "intermediate"})
-    assert response.status_code == 200
-    data = response.json()
-    assert "agent_name" in data
-    assert "question" in data
-    assert "ai_answer" in data
-    assert "is_correct" in data
+@patch("app.services.ai_agent.model")
+def test_attempt_answer_returns_string(mock_model):
+    mock_model.generate_content.return_value = MagicMock(text="What is the Appian Way?")
+    answer = attempt_answer(
+        question="Built in 312 B.C. to link Rome & the South of Italy",
+        category="HISTORY",
+        skill_level="intermediate",
+    )
+    assert isinstance(answer, str)
+    assert len(answer) > 0
 
 
-@patch("app.api.routes.agent.verify_answer", return_value=(True, "Correct!"))
-@patch("app.api.routes.agent.attempt_answer", return_value="What is Copernicus?")
-def test_agent_play_beginner_skill_level(mock_attempt, mock_verify, client):
-    response = client.post("/agent-play/", json={"round": "Jeopardy!", "value": "$200", "skill_level": "beginner"})
-    assert response.status_code == 200
-    assert response.json()["agent_name"] == "Rookie-Bot"
+@patch("app.services.gemini_client._base_model")
+def test_attempt_answer_retries_on_failure_then_succeeds(mock_base_model):
+    """Test that a single failure is retried and eventually succeeds."""
+    mock_base_model.generate_content.side_effect = [
+        Exception("Temporary API failure"),  # First attempt fails
+        MagicMock(text="What is the Appian Way?"),  # Second attempt succeeds
+    ]
+    answer = attempt_answer(
+        question="Built in 312 B.C. to link Rome & the South of Italy",
+        category="HISTORY",
+        skill_level="intermediate",
+    )
+    assert isinstance(answer, str)
+    assert "Appian Way" in answer
 
 
-@patch("app.api.routes.agent.verify_answer", return_value=(True, "Correct!"))
-@patch("app.api.routes.agent.attempt_answer", return_value="What is Copernicus?")
-def test_agent_play_expert_skill_level(mock_attempt, mock_verify, client):
-    response = client.post("/agent-play/", json={"round": "Jeopardy!", "value": "$200", "skill_level": "expert"})
-    assert response.status_code == 200
-    assert response.json()["agent_name"] == "Master-Bot"
+@patch("app.services.ai_agent.model")
+def test_attempt_answer_passes_skill_prompt_to_model(mock_model):
+    mock_model.generate_content.return_value = MagicMock(text="What is Hydrogen?")
+    attempt_answer(
+        question="This element has the atomic number 1",
+        category="SCIENCE",
+        skill_level="expert",
+    )
+    call_args = mock_model.generate_content.call_args[0][0]
+    assert SKILL_PROMPTS["expert"] in call_args
 
 
-@patch("app.api.routes.agent.verify_answer", return_value=(True, "Correct!"))
-@patch("app.api.routes.agent.attempt_answer", return_value="What is Vatican City?")
-def test_agent_play_final_jeopardy_without_value(mock_attempt, mock_verify, client):
-    response = client.post("/agent-play/", json={"round": "Final Jeopardy!"})
-    assert response.status_code == 200
-    data = response.json()
-    assert "agent_name" in data
-    assert "question" in data
-    assert "ai_answer" in data
-    assert "is_correct" in data
+@patch("app.services.ai_agent.model")
+def test_attempt_answer_strips_whitespace(mock_model):
+    mock_model.generate_content.return_value = MagicMock(text="  What is Hydrogen?  \n")
+    answer = attempt_answer(
+        question="This element has the atomic number 1",
+        category="SCIENCE",
+        skill_level="beginner",
+    )
+    assert answer == "What is Hydrogen?"
 
 
-def test_agent_play_invalid_round_returns_404(client):
-    response = client.post("/agent-play/", json={"round": "Invalid Round!", "value": "$200"})
-    assert response.status_code == 404
+def test_agent_names_exist_for_all_skill_levels():
+    for skill_level in ["beginner", "intermediate", "expert"]:
+        assert skill_level in AGENT_NAMES
+        assert isinstance(AGENT_NAMES[skill_level], str)
 
 
-def test_agent_play_invalid_skill_level_returns_422(client):
-    response = client.post("/agent-play/", json={"round": "Jeopardy!", "value": "$200", "skill_level": "godlike"})
-    assert response.status_code == 422
-
-
-@patch("app.api.routes.agent.attempt_answer", side_effect=Exception("Gemini unavailable"))
-def test_agent_play_ai_failure_returns_503(mock_attempt, client):
-    response = client.post("/agent-play/", json={"round": "Jeopardy!", "value": "$200"})
-    assert response.status_code == 503
+def test_skill_prompts_exist_for_all_skill_levels():
+    for skill_level in ["beginner", "intermediate", "expert"]:
+        assert skill_level in SKILL_PROMPTS
+        assert isinstance(SKILL_PROMPTS[skill_level], str)

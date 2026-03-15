@@ -1,6 +1,6 @@
 import logging
 
-from app.services.gemini_client import model
+from app.services.gemini_client import generate_content, AGENT_TEMPS
 
 log = logging.getLogger(__name__)
 
@@ -51,7 +51,7 @@ def attempt_answer(question: str, category: str, skill_level: str) -> str:
 
     log.debug("Calling Gemini for skill_level=%s", skill_level)
     try:
-        response = model.generate_content(prompt)
+        response = generate_content(prompt, temperature=AGENT_TEMPS[skill_level])
     except Exception as e:
         log.error("Gemini API call failed: %s", e)
         raise RuntimeError(f"Gemini API call failed: {e}") from e

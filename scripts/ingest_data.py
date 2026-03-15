@@ -9,11 +9,15 @@ import logging
 import os
 import re
 import sys
+import time
 from datetime import date
 from pathlib import Path
 
 import requests
-from sqlalchemy.dialects.postgresql import insert
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from app.core.database import SessionLocal
 from app.models.question import Question
@@ -27,14 +31,34 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 log = logging.getLogger(__name__)
 
 
+def _create_session_with_retries() -> requests.Session:
+    """Create a requests session with exponential backoff retry strategy."""
+    session = requests.Session()
+    
+    retry_strategy = Retry(
+        total=3,  # Max 3 retries (4 total attempts)
+        backoff_factor=1,  # Exponential backoff: 1, 2, 4 seconds
+        status_forcelist=[429, 500, 502, 503, 504],  # Retry on these HTTP status codes
+        allowed_methods=["GET"],  # Only retry GET requests
+    )
+    
+    adapter = HTTPAdapter(max_retries=retry_strategy)
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+    
+    return session
+
+
 def fetch_csv() -> None:
-    """Download the CSV to DATA_PATH, skipping if already present."""
+    """Download the CSV to DATA_PATH with exponential backoff retry, skipping if already present."""
     if DATA_PATH.exists():
         log.info("Dataset already present, skipping download")
         return
     log.info("Downloading dataset from %s", DATASET_URL)
     DATA_PATH.parent.mkdir(parents=True, exist_ok=True)
-    response = requests.get(DATASET_URL, timeout=60)
+    
+    session = _create_session_with_retries()
+    response = session.get(DATASET_URL, timeout=60)
     response.raise_for_status()
     DATA_PATH.write_text(response.text, encoding="utf-8")
     log.info("Saved to %s", DATA_PATH)
@@ -91,7 +115,8 @@ def build_rows() -> list[dict[str, object]]:
                 continue
 
             raw_value = raw.get("Value", "").strip()
-            value = None if raw.get("Round", "").strip() == "Final Jeopardy!" else raw_value
+            is_final = raw.get("Round", "").strip() == "Final Jeopardy!"
+            value = None if is_final or raw_value == "None" else raw_value
 
             rows.append({
                 "show_number": int(raw["Show Number"]),
@@ -110,12 +135,14 @@ def build_rows() -> list[dict[str, object]]:
 def upsert_rows(rows: list[dict[str, object]]) -> None:
     """Insert rows into the database in batches, ignoring duplicates."""
     session = SessionLocal()
+    is_sqlite = session.bind.dialect.name == "sqlite" if session.bind else False
+    insert = sqlite_insert if is_sqlite else pg_insert
     try:
         for start in range(0, len(rows), BATCH_SIZE):
             batch = rows[start : start + BATCH_SIZE]
-            session.execute(
-                insert(Question).values(batch).on_conflict_do_nothing(constraint="uq_show_question")
-            )
+            stmt = insert(Question).values(batch)
+            stmt = stmt.on_conflict_do_nothing() if is_sqlite else stmt.on_conflict_do_nothing(constraint="uq_show_question")
+            session.execute(stmt)
             session.commit()
             log.info("Progress: %d / %d rows committed", start + len(batch), len(rows))
         log.info("Done.")
